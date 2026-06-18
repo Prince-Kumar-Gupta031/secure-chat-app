@@ -25,3 +25,9 @@ frontend/dist/
 .DS_Store
 frontend/node_modules/.cache/default-development/5.pack
 frontend/node_modules/.cache/default-development/6.pack
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
