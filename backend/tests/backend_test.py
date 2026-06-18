@@ -331,7 +331,7 @@ class TestAdminInsights:
         assert r.status_code == 200
         logs = r.json()
         assert isinstance(logs, list)
-        actions = {l.get("action") for l in logs}
+        actions = {log.get("action") for log in logs}
         assert "approve_user" in actions or "login" in actions
 
 
