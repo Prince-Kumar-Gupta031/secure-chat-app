@@ -1,0 +1,121 @@
+{
+  "theme": {
+    "archetype": "Archetype 4 (Swiss & High-Contrast) + Tactical Enterprise",
+    "mode": "hybrid (Dark/Light support, Dark Mode prioritized)",
+    "description": "Military-grade, highly secure, professional, and dense enterprise application. Designed for authority, clarity, and truth, leaning on tactical high-contrast to convey defense-grade trust."
+  },
+  "colors": {
+    "light": {
+      "background": "#f8fafc",
+      "surface": "#ffffff",
+      "primary": "#0f172a",
+      "primary_foreground": "#ffffff",
+      "secondary": "#e2e8f0",
+      "secondary_foreground": "#0f172a",
+      "accent": "#2563eb",
+      "accent_foreground": "#ffffff",
+      "success": "#16a34a",
+      "destructive": "#dc2626",
+      "muted": "#f1f5f9",
+      "muted_foreground": "#64748b",
+      "border": "#cbd5e1"
+    },
+    "dark": {
+      "background": "#020617",
+      "surface": "#0f172a",
+      "primary": "#f8fafc",
+      "primary_foreground": "#0f172a",
+      "secondary": "#1e293b",
+      "secondary_foreground": "#f8fafc",
+      "accent": "#3b82f6",
+      "accent_foreground": "#ffffff",
+      "success": "#22c55e",
+      "destructive": "#ef4444",
+      "muted": "#0f172a",
+      "muted_foreground": "#94a3b8",
+      "border": "#1e293b"
+    },
+    "chat_specific": {
+      "message_bubble_sent_light": "#dbeafe",
+      "message_bubble_sent_dark": "#1e3a8a",
+      "message_bubble_received_light": "#ffffff",
+      "message_bubble_received_dark": "#1e293b",
+      "ticks": {
+        "sent": "#94a3b8",
+        "delivered": "#64748b",
+        "read": "#3b82f6"
+      }
+    }
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Chivo, sans-serif",
+      "weights": ["400", "700", "900"],
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "font_family": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500", "600"],
+      "tracking": "tracking-normal"
+    },
+    "mono": {
+      "font_family": "IBM Plex Mono, monospace",
+      "usage": "Timestamps, employee IDs, audit logs, technical metadata"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl font-black",
+      "h2": "text-2xl sm:text-3xl font-bold",
+      "h3": "text-xl sm:text-2xl font-bold",
+      "h4": "text-lg sm:text-xl font-semibold",
+      "body": "text-base",
+      "small": "text-sm",
+      "micro": "text-xs uppercase tracking-[0.2em]"
+    }
+  },
+  "layout_and_spacing": {
+    "spacing_scale": "p-4, p-6, p-8, p-12",
+    "bento_grid": "Tight gap-4 or gap-6 for control room / admin dashboard layout",
+    "containers": "Rectangular, dense styles, max 4px to 8px border-radius (rounded-md). Avoid excessive rounded corners.",
+    "borders": "1px solid borders everywhere to create a high-contrast 'technical' look. border-slate-200 in light, border-slate-800 in dark."
+  },
+  "components": {
+    "buttons": "Shadcn standard. Square-ish (rounded-md). Primary is brand color (Slate 900 or Blue 600). Use subtle hover lifts (-translate-y-[1px]).",
+    "cards": "Cardless or flat cards with 1px borders. No soft drop shadows. Use inner borders.",
+    "chat_interface": "3-pane layout: Sidebar (conversations), Main (chat history + input), Right panel (optional user profile/details).",
+    "message_bubbles": "Subtle padding (p-3). Sent messages right-aligned, received left-aligned. Include timestamps and tick marks inside the bubble bottom-right corner.",
+    "inputs": "Shadcn input. Clear focus rings (ring-blue-500) with 2px offset.",
+    "modals": "Glassmorphism is BANNED for health/medical/military. Use flat solid backgrounds with sharp 1px borders.",
+    "tables": "Dense. Small text (text-sm). Used for user directory and admin audit logs.",
+    "charts": "Recharts / Shadcn Charts for Admin Dashboard (Analytics, storage usage, active users). Use strict colors."
+  },
+  "motion_and_interactions": {
+    "hover": "Explicit hover states on all interactables: hover:bg-slate-800 hover:text-white",
+    "transitions": "transition-colors duration-200 ease-in-out",
+    "feedback": "Use Sonner toasts for connection status, message delivery failures, and admin action confirmations."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "usage": "Check (single tick), CheckCheck (double tick). Use CheckCheck with text-blue-500 for read receipt. Circle for online status (text-green-500)."
+  },
+  "testing": {
+    "attributes": "All interactive elements MUST include data-testid. E.g., data-testid='chat-send-button', data-testid='login-submit'"
+  },
+  "media": {
+    "image_urls": {
+      "login_background": "https://images.unsplash.com/photo-1647552907703-c407560839aa?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwyfHxtaWxpdGFyeSUyMGFic3RyYWN0JTIwdGVjaG5vbG9neSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzgxODE1NjgyfDA&ixlib=rb-4.1.0&q=85",
+      "auth_banner": "https://images.unsplash.com/photo-1765445665980-13a1074d5650?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwxfHxtaWxpdGFyeSUyMGFic3RyYWN0JTIwdGVjaG5vbG9neSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzgxODE1NjgyfDA&ixlib=rb-4.1.0&q=85",
+      "default_avatar_1": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBlbXBsb3llZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTgxNTY4M3ww&ixlib=rb-4.1.0&q=85",
+      "default_avatar_2": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBlbXBsb3llZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTgxNTY4M3ww&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install required fonts from Google Fonts: Chivo and IBM Plex Sans.",
+    "Set up Tailwind CSS configuration with the exact custom colors specified above.",
+    "Implement standard Shadcn UI components but override border radii to 'rounded-md' (max 4-6px) for a sharper military feel.",
+    "Ensure the Chat UI feels similar to WhatsApp Web but with a darker, strictly professional 'Signal/Proton' theme.",
+    "Use grid borders for the Admin Dashboard to give it a 'Technical Control Room' look.",
+    "Implement Sonner toasts for all async actions.",
+    "Ensure all user interactions have 'data-testid' applied.",
+    "NO EMOJIS in the application as requested in the prompt."
+  ]
+}
