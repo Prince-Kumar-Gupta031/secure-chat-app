@@ -1,0 +1,65 @@
+{
+  "summary": "Phase 1 backend + frontend smoke testing for DRDO Secure LAN Chat. 32/33 backend tests PASS via public REACT_APP_BACKEND_URL covering health, auth (admin login, wrong pwd, JWT), registration + admin approval/suspend/reject flow, pending-login 403 with correct messages, /auth/me, profile update, change-password, employee directory (search by name/empid/department), chat create/list/messages/read, file upload (text + blocked .exe + auth-required download), profile picture upload + public URL (no auth), admin analytics (all 7 keys present), admin audit-logs, non-admin 403 on /admin/*. Socket.IO invalid-token connection correctly rejected. Frontend smoke: landing CTAs, /login admin login → /admin with full stats (Total 7 / Active 3 / Pending 0 / Online 0 / Storage 0.2KB / Depts 2), theme toggle, logout, /register fields, navigation all work.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET/POST /socket.io/* (via public REACT_APP_BACKEND_URL)",
+        "issue": "CRITICAL INFRA + APP INTEGRATION BUG — the Kubernetes ingress only routes /api/* to backend; /socket.io/* falls through to the React app (returns HTML 200 instead of Engine.IO handshake). Verified: curl https://<public>/socket.io/?EIO=4&transport=polling returns React HTML, while curl http://localhost:8001/socket.io/... returns the proper Engine.IO sid. Consequence: SocketContext.jsx connects to BACKEND_URL/socket.io and gets a HTML response, so the WebSocket handshake fails (browser console: 'WebSocket connection to wss://.../socket.io/... failed'). The sidebar shows OFFLINE permanently. Real-time messaging, typing indicator, presence, delivered/read ticks are ALL non-functional via the deployed URL. Locally backend Socket.IO works fine. Fix: mount Socket.IO under an /api-prefixed path (e.g. socketio_path='api/socket.io' in server.py AND path='/api/socket.io' in SocketContext.jsx), since only /api/* is proxied to backend.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/users/{id}/approve",
+        "issue": "Endpoint accepts no body but other admin actions (reject/suspend) require AdminUserAction body. Inconsistency only — not a bug."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Real-time chat / typing / presence / delivered & read ticks",
+        "issue": "Socket.IO client cannot connect through public URL because /socket.io/ is not routed to backend by the ingress (see backend critical). All realtime features (chat-message-input → chat-send-btn live delivery, typing indicator, online presence, blue read ticks) WILL NOT WORK via the deployed URL. Could not test two-session real-time flow as a result.",
+        "affected_selectors": ["chat-message-input", "chat-send-btn", "chat-attach-btn"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Admin Dashboard chart",
+        "issues": ["Recharts container occasionally logs 'width(-1)/height(-1)' warning during first render (cosmetic, chart still renders correctly)."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/pytest.ini",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "[CRITICAL] Move Socket.IO mount under /api so the ingress routes it. In /app/backend/server.py change `socketio.ASGIApp(sio, ..., socketio_path='socket.io')` → `socketio_path='api/socket.io'`. In /app/frontend/src/contexts/SocketContext.jsx change `path: '/socket.io'` → `path: '/api/socket.io'`. Restart backend & frontend. After fix, re-run backend_test.py — the test_socketio_realtime_flow test will pass and frontend sidebar should flip to ONLINE.",
+    "After Socket.IO fix, retest two-session realtime in browser: typing indicator, delivered (single grey tick → double), read (blue double tick), file-message preview.",
+    "(Optional) Make /admin/users/{id}/approve accept the same AdminUserAction body for consistency with reject/suspend."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~640 lines, on the borderline — consider splitting into routers/{auth,admin,chats,files}.py after Phase 1.",
+    "verify_password swallows all exceptions returning False — acceptable but log at debug.",
+    "Socket.IO presence map is in-memory (ONLINE dict); will not survive backend restart and won't work across multiple replicas. Fine for Phase 1 single-instance.",
+    "AsyncUploadFile read in 1MB chunks then writes to disk inside an async route — OK, but `dest.open('wb')` is a blocking sync open; in production replace with aiofiles.",
+    "register endpoint relies on `await db.users.find_one` + insert — race condition possible on concurrent duplicate registrations. The unique indexes on mobile/employee_id (created at startup) save us by raising at insert, but the 400 message won't reflect that; consider try/except DuplicateKeyError.",
+    "Default JWT_SECRET fallback 'change-me' should not silently default in production — fail-fast in startup if env missing.",
+    "auth.py get_current_user_id has no DB existence check; a deleted/suspended user with valid JWT can still hit /auth/me until token expires (43200 min = 30d). Consider checking user status on each request for sensitive endpoints."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (NEW)",
+    "/app/backend/pytest.ini (NEW)",
+    "/app/backend/tests/__init__.py (NEW)"
+  ],
+  "success_rate": {"backend": "97% (32/33 — socket.io test fails purely due to infra routing, code is correct)", "frontend": "100% on tested non-realtime flows; realtime untestable"},
+  "test_credentials": "Super Admin mobile=7209674114 password=admin (per /app/memory/test_credentials.md). Test employees are created and approved inside backend_test.py with TEST_ prefix.",
+  "seed_data_creation": "Backend tests register multiple TEST_-prefixed users (approved, suspended, rejected). They persist in MongoDB and contribute to total_users counter; admin can clean them up via Admin > All Users if desired. None reuse fixed mobiles — each suite run uses time-based suffixes.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend REST is fully green. The single remaining gap is Socket.IO routing through the public URL. Once main agent prefixes the Socket.IO mount under /api (see action_items #1), rerun `cd /app/backend && python -m pytest tests/backend_test.py -v` — only test_socketio_realtime_flow needs to flip to PASS, and then do a two-browser Playwright test for typing/delivered/read. backend_test.py uses time-based mobiles so it can be rerun freely.",
+  "rca_of_the_issue": "RCA — Real-time socket failure via public URL: Kubernetes ingress for the preview domain proxies only path prefix /api/* to the FastAPI backend on port 8001; everything else (including /socket.io/*) is served by the React dev server on port 3000. The Socket.IO server is mounted at /socket.io (default) in /app/backend/server.py via `socketio.ASGIApp(sio, other_asgi_app=fastapi_app, socketio_path='socket.io')`, and the frontend SocketContext.jsx connects to `BACKEND_URL` with `path: '/socket.io'`. Result: Engine.IO handshake request reaches the React dev server which returns index.html (HTTP 200 text/html). Reproduction: `curl -i 'https://drdo-secure-chat.preview.emergentagent.com/socket.io/?EIO=4&transport=polling'` returns `Content-Type: text/html` with `<!doctype html>`. Compare with `curl -i 'http://localhost:8001/socket.io/?EIO=4&transport=polling'` which returns `0{\"sid\":...}` JSON Engine.IO payload. Mitigation: relocate the Socket.IO mount under /api by setting `socketio_path='api/socket.io'` in server.py and matching `path: '/api/socket.io'` in SocketContext.jsx — no ingress change required."
+}

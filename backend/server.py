@@ -441,8 +441,8 @@ async def admin_analytics(_: dict = Depends(require_admin)):
 @api.get("/admin/audit-logs")
 async def admin_audit(_: dict = Depends(require_admin), limit: int = 100):
     logs = await db.audit_logs.find({}).sort("at", -1).limit(min(limit, 500)).to_list(500)
-    for l in logs:
-        l.pop("_id", None)
+    for log in logs:
+        log.pop("_id", None)
     return logs
 
 

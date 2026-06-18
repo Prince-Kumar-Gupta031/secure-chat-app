@@ -33,7 +33,7 @@ export default function Landing() {
                     Encrypted comms<br/>for the people who<br/><span className="text-accent">defend the nation.</span>
                 </h1>
                 <p className="text-muted-foreground text-base md:text-lg max-w-2xl mb-10 leading-relaxed">
-                    A WhatsApp-grade messaging platform engineered for DRDO's internal LAN. Real-time chat, presence, delivery receipts, encrypted media transfer — built to operate fully offline, fully sovereign.
+                    A WhatsApp-grade messaging platform engineered for DRDO&apos;s internal LAN. Real-time chat, presence, delivery receipts, encrypted media transfer — built to operate fully offline, fully sovereign.
                 </p>
                 <div className="flex flex-wrap gap-3">
                     <Link to="/register"><Button data-testid="landing-cta-register" size="lg" className="font-mono uppercase tracking-wider">Request Personnel Access</Button></Link>
