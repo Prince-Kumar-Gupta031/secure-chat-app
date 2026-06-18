@@ -594,8 +594,8 @@ async def mark_delivered(sid, data):
                             "status": "delivered"}, to=ss)
 
 
-# Combine ASGI app: Socket.IO at /socket.io, FastAPI everywhere else
-app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app, socketio_path="socket.io")
+# Combine ASGI app: Socket.IO at /api/socket.io, FastAPI everywhere else
+app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app, socketio_path="api/socket.io")
 
 
 # ---------- STARTUP: seed super admin ----------

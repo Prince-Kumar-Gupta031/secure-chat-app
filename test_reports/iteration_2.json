@@ -1,0 +1,41 @@
+{
+  "summary": "Phase 1 RETEST after Socket.IO routing fix. ALL 33/33 backend tests PASS via public REACT_APP_BACKEND_URL (regression intact). Socket.IO realtime flow (test_socketio_realtime_flow) now PASSES through /api/socket.io path — Engine.IO handshake returns proper JSON ('0{\"sid\":...}'). Real-time event delivery verified: typing → admin, send_message → new_message ack with status=delivered and recipient receives it, POST /chats/{id}/read → other party gets messages_read event and DB flips to status='read'. Invalid-token connection still rejected. Two-browser Playwright E2E PASSED: (1) admin login → /admin, (2) employee login → /chat, (3) employee opens chat with admin from /directory using dir-chat-btn-{id}, (4) employee typing makes admin see 'typing…' in chat header within ~300ms, (5) emp send → message appears live on admin without reload, (6) admin's open chat triggers read receipt to emp, (7) image upload (PNG via chat-file-input) renders inline image bubble on BOTH sides via /api/files/{id}, (8) logout-btn clears localStorage token and redirects to /login.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "POST /api/admin/users/{id}/approve", "issue": "Endpoint accepts no body while /reject and /suspend require AdminUserAction body — inconsistency only."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Dashboard chart", "issues": ["Recharts logs cosmetic 'width(-1)/height(-1)' warning during first render — chart still draws correctly."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/pytest.ini",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Make /admin/users/{id}/approve accept AdminUserAction body for consistency with reject/suspend.",
+    "(Optional, perf) Replace in-memory ONLINE presence map with Redis pub/sub for multi-replica deployments.",
+    "(Optional) Suppress harmless ws-upgrade-aborted warning in SocketContext — current polling fallback works fine."
+  ],
+  "critical_code_review_comments": [
+    "Socket.IO mount path now correctly aligns with k8s ingress (/api/* → backend). Engine.IO + WebSocket upgrade both reach backend now.",
+    "SocketContext re-maps backend event names (new_message/message_status/messages_read) to friendly listener keys (message/status/read) for consumers — clean abstraction.",
+    "server.py is ~640 lines, on the edge — consider splitting into routers/{auth,admin,chats,files,socketio_handlers}.py post Phase 1.",
+    "Default JWT_SECRET fallback 'change-me' should fail-fast in startup if env missing for production.",
+    "auth.get_current_user_id has no DB existence check; suspended user with valid JWT can still hit /auth/me for 30d until token expires — add status check for sensitive endpoints.",
+    "register endpoint uses await db.users.find_one + insert — race possible on concurrent duplicate registrations; unique indexes catch at insert but 400 won't reflect it. Wrap with try/except DuplicateKeyError."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (updated socketio_path from /socket.io → /api/socket.io in 2 places)"
+  ],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "100% on all tested two-browser realtime flows"},
+  "test_credentials": "Super Admin mobile=7209674114 password=admin (per /app/memory/test_credentials.md). E2E test employees auto-registered+approved with TEST_ prefix and time-based mobiles.",
+  "seed_data_creation": "Each test run registers multiple TEST_-prefixed users (approved + suspended + rejected variants). Mobiles are time+random so reruns are conflict-free. Admin can prune via Admin > All Users if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 1 is fully green end-to-end through the public preview URL. Socket.IO is mounted at /api/socket.io on server side and frontend SocketContext uses path '/api/socket.io'. Verified Engine.IO handshake: curl '<URL>/api/socket.io/?EIO=4&transport=polling' returns '0{\"sid\":...}'. Backend test file at /app/backend/tests/backend_test.py is idempotent (time-based suffixes) — safe to rerun anytime. For next phase test message reactions/edits/delete, group chat, push notifications etc if those are added.",
+  "rca_of_the_issue": "Previous iteration RCA (Socket.IO HTML response via public URL) is now MITIGATED: Socket.IO mounted at socketio_path='api/socket.io' in /app/backend/server.py and frontend connects with path='/api/socket.io'. Ingress proxies /api/* to backend, so handshake + websocket upgrade both reach the FastAPI process. Verified end-to-end with pytest test_socketio_realtime_flow (PASS) and dual-browser Playwright (PASS)."
+}

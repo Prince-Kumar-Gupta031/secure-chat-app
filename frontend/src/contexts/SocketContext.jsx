@@ -16,7 +16,7 @@ export function SocketProvider({ children }) {
         const token = localStorage.getItem("drdo_token");
         if (!user || !token) return;
         const sock = io(BACKEND_URL, {
-            path: "/socket.io",
+            path: "/api/socket.io",
             auth: { token },
             transports: ["websocket", "polling"],
             reconnection: true,

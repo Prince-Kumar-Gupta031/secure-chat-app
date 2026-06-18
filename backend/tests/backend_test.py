@@ -430,9 +430,9 @@ async def test_socketio_realtime_flow():
     @emp.on("messages_read")
     async def _e_read(data): received["emp_read"].append(data)
 
-    await emp.connect(BASE_URL, socketio_path="/socket.io",
+    await emp.connect(BASE_URL, socketio_path="/api/socket.io",
                       auth={"token": emp_token}, transports=["polling"])
-    await adm.connect(BASE_URL, socketio_path="/socket.io",
+    await adm.connect(BASE_URL, socketio_path="/api/socket.io",
                       auth={"token": admin_token}, transports=["polling"])
     # small settle delay
     await asyncio.sleep(0.6)
@@ -481,7 +481,7 @@ async def test_socketio_rejects_unauthorized_connection():
     c = sio_mod.AsyncClient(reconnection=False)
     failed = False
     try:
-        await c.connect(BASE_URL, socketio_path="/socket.io",
+        await c.connect(BASE_URL, socketio_path="/api/socket.io",
                         auth={"token": "invalid.jwt.token"},
                         transports=["polling"])
     except Exception:
