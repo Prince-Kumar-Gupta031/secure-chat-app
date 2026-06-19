@@ -82,12 +82,12 @@ class Message(BaseModel):
 
 
 class Chat(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=new_id)
-    participants: List[str]  # exactly 2 user ids (sorted)
-    last_message_at: Optional[str] = None
-    last_message_preview: Optional[str] = None
-    created_at: str = Field(default_factory=now_iso)
+    id: str
+    participants: List[str]
+    is_group: bool = False
+    group_name: Optional[str] = None
+    group_admin: Optional[str] = None
+    group_icon: Optional[str] = None
 
 
 # ---------- ADMIN ----------
