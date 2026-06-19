@@ -9,8 +9,14 @@ export function SocketProvider({ children }) {
     const { user } = useAuth();
     const socketRef = useRef(null);
     const [connected, setConnected] = useState(false);
-    const [presence, setPresence] = useState({}); // user_id -> {online, last_seen}
-    const [listeners] = useState({ message: new Set(), status: new Set(), typing: new Set(), read: new Set() });
+    const [presence, setPresence] = useState({});
+    const [listeners] = useState({
+        message: new Set(),
+        status: new Set(),
+        typing: new Set(),
+        read: new Set(),
+        chatUpdated: new Set(),
+    });
 
     useEffect(() => {
         const token = localStorage.getItem("drdo_token");
@@ -33,6 +39,7 @@ export function SocketProvider({ children }) {
         sock.on("message_status", (s) => { listeners.status.forEach((fn) => fn(s)); });
         sock.on("typing", (t) => { listeners.typing.forEach((fn) => fn(t)); });
         sock.on("messages_read", (r) => { listeners.read.forEach((fn) => fn(r)); });
+        sock.on("chat_updated", (c) => { listeners.chatUpdated.forEach((fn) => fn(c)); });
         return () => { sock.disconnect(); socketRef.current = null; };
     }, [user, listeners]);
 
@@ -47,8 +54,9 @@ export function SocketProvider({ children }) {
         });
     }, []);
 
-    const sendTyping = useCallback((peer_id, typing) => {
-        socketRef.current?.emit("typing", { peer_id, typing });
+    const sendTyping = useCallback((opts) => {
+        // opts: { peer_id?, chat_id?, typing }
+        socketRef.current?.emit("typing", opts);
     }, []);
 
     const markDelivered = useCallback((id) => {

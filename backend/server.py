@@ -20,6 +20,7 @@ import socketio
 from models import (
     UserRegister, UserLogin, UserPublic, UserUpdate, ChangePasswordRequest,
     MessageCreate, Message, Chat, AdminAnalytics, AdminUserAction,
+    GroupCreate, GroupUpdate, GroupMembers,
     now_iso, new_id,
 )
 from auth import (
@@ -186,13 +187,17 @@ async def get_user(user_id: str, uid: str = Depends(get_current_user_id)):
 # ---------- CHATS / MESSAGES ----------
 async def _get_or_create_chat(a: str, b: str) -> dict:
     participants = _chat_pair_id(a, b)
-    chat = await db.chats.find_one({"participants": participants})
+    chat = await db.chats.find_one({
+        "participants": participants,
+        "is_group": {"$ne": True},
+    })
     if chat:
         chat.pop("_id", None)
         return chat
     chat = {
         "id": new_id(),
         "participants": participants,
+        "is_group": False,
         "last_message_at": None,
         "last_message_preview": None,
         "created_at": now_iso(),
@@ -202,19 +207,37 @@ async def _get_or_create_chat(a: str, b: str) -> dict:
     return chat
 
 
+async def _enrich_chat(c: dict, uid: str) -> dict:
+    c.pop("_id", None)
+    if c.get("is_group"):
+        # populate member objects (minimal)
+        members = await db.users.find(
+            {"id": {"$in": c["participants"]}}
+        ).to_list(500)
+        c["members"] = [_public_user(m) for m in members]
+        c["peer"] = None
+        c["unread"] = await db.messages.count_documents({
+            "chat_id": c["id"],
+            "sender_id": {"$ne": uid},
+            "read_by": {"$nin": [uid]},
+        })
+    else:
+        peer_id = next((p for p in c["participants"] if p != uid), None)
+        peer = await db.users.find_one({"id": peer_id}) if peer_id else None
+        c["peer"] = _public_user(peer) if peer else None
+        c["members"] = None
+        c["unread"] = await db.messages.count_documents({
+            "chat_id": c["id"], "receiver_id": uid, "status": {"$ne": "read"}
+        })
+    return c
+
+
 @api.get("/chats")
 async def list_chats(uid: str = Depends(get_current_user_id)):
     chats = await db.chats.find({"participants": uid}).sort("last_message_at", -1).to_list(500)
     out = []
     for c in chats:
-        c.pop("_id", None)
-        peer_id = next((p for p in c["participants"] if p != uid), None)
-        peer = await db.users.find_one({"id": peer_id}) if peer_id else None
-        c["peer"] = _public_user(peer) if peer else None
-        c["unread"] = await db.messages.count_documents({
-            "chat_id": c["id"], "receiver_id": uid, "status": {"$ne": "read"}
-        })
-        out.append(c)
+        out.append(await _enrich_chat(c, uid))
     return out
 
 
@@ -229,20 +252,31 @@ async def create_chat(peer_id: str = Query(...),
     chat = await _get_or_create_chat(uid, peer_id)
     chat["peer"] = _public_user(peer)
     chat["unread"] = 0
+    chat["members"] = None
     return chat
+
+
+@api.get("/chats/{chat_id}")
+async def get_chat(chat_id: str, uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "participants": uid})
+    if not chat:
+        raise HTTPException(404, "Chat not found")
+    return await _enrich_chat(chat, uid)
 
 
 @api.get("/chats/{chat_id}/messages")
 async def get_messages(chat_id: str, before: Optional[str] = None,
-                       limit: int = 50,
+                       limit: int = 50, q: Optional[str] = None,
                        uid: str = Depends(get_current_user_id)):
     chat = await db.chats.find_one({"id": chat_id, "participants": uid})
     if not chat:
         raise HTTPException(404, "Chat not found")
-    q = {"chat_id": chat_id}
+    query = {"chat_id": chat_id}
     if before:
-        q["created_at"] = {"$lt": before}
-    msgs = await db.messages.find(q).sort("created_at", -1).limit(min(limit, 200)).to_list(200)
+        query["created_at"] = {"$lt": before}
+    if q:
+        query["text"] = {"$regex": q, "$options": "i"}
+    msgs = await db.messages.find(query).sort("created_at", -1).limit(min(limit, 200)).to_list(200)
     for m in msgs:
         m.pop("_id", None)
     return list(reversed(msgs))
@@ -253,6 +287,21 @@ async def mark_read(chat_id: str, uid: str = Depends(get_current_user_id)):
     chat = await db.chats.find_one({"id": chat_id, "participants": uid})
     if not chat:
         raise HTTPException(404, "Chat not found")
+    if chat.get("is_group"):
+        # Add uid to read_by for all messages not sent by uid
+        res = await db.messages.update_many(
+            {"chat_id": chat_id, "sender_id": {"$ne": uid},
+             "read_by": {"$nin": [uid]}},
+            {"$addToSet": {"read_by": uid}}
+        )
+        # Notify all other group members
+        for pid in chat["participants"]:
+            if pid == uid:
+                continue
+            for sid in list(ONLINE.get(pid, [])):
+                await sio.emit("messages_read",
+                               {"chat_id": chat_id, "reader_id": uid}, to=sid)
+        return {"updated": res.modified_count}
     res = await db.messages.update_many(
         {"chat_id": chat_id, "receiver_id": uid, "status": {"$ne": "read"}},
         {"$set": {"status": "read", "read_at": now_iso()}}
@@ -264,6 +313,200 @@ async def mark_read(chat_id: str, uid: str = Depends(get_current_user_id)):
             await sio.emit("messages_read",
                            {"chat_id": chat_id, "reader_id": uid}, to=sid)
     return {"updated": res.modified_count}
+
+
+# ---------- GROUPS ----------
+@api.post("/groups")
+async def create_group(body: GroupCreate, uid: str = Depends(get_current_user_id)):
+    if not body.name or not body.name.strip():
+        raise HTTPException(400, "Group name is required")
+    participants = list({uid, *body.participant_ids})
+    if len(participants) < 2:
+        raise HTTPException(400, "Group must have at least 1 other member")
+    # Validate all participants exist and are approved
+    valid = await db.users.find(
+        {"id": {"$in": participants}, "status": "approved"}
+    ).to_list(500)
+    valid_ids = {u["id"] for u in valid}
+    for pid in participants:
+        if pid not in valid_ids:
+            raise HTTPException(400, f"Invalid or unapproved user: {pid}")
+    chat = {
+        "id": new_id(),
+        "participants": participants,
+        "is_group": True,
+        "group_name": body.name.strip()[:80],
+        "group_icon": body.icon,
+        "group_admins": [uid],
+        "created_by": uid,
+        "last_message_at": now_iso(),
+        "last_message_preview": "Group created",
+        "created_at": now_iso(),
+    }
+    await db.chats.insert_one(dict(chat))
+    chat.pop("_id", None)
+    # Notify all participants via socket
+    for pid in participants:
+        for sid in list(ONLINE.get(pid, [])):
+            await sio.emit("chat_updated", {"chat_id": chat["id"]}, to=sid)
+    return await _enrich_chat(chat, uid)
+
+
+@api.put("/groups/{chat_id}")
+async def update_group(chat_id: str, body: GroupUpdate,
+                       uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "is_group": True})
+    if not chat:
+        raise HTTPException(404, "Group not found")
+    if uid not in chat.get("group_admins", []):
+        raise HTTPException(403, "Only group admins can edit")
+    updates = {}
+    if body.name is not None:
+        updates["group_name"] = body.name.strip()[:80]
+    if body.icon is not None:
+        updates["group_icon"] = body.icon
+    if updates:
+        await db.chats.update_one({"id": chat_id}, {"$set": updates})
+    for pid in chat["participants"]:
+        for sid in list(ONLINE.get(pid, [])):
+            await sio.emit("chat_updated", {"chat_id": chat_id}, to=sid)
+    chat = await db.chats.find_one({"id": chat_id})
+    return await _enrich_chat(chat, uid)
+
+
+@api.post("/groups/{chat_id}/members")
+async def add_members(chat_id: str, body: GroupMembers,
+                      uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "is_group": True})
+    if not chat:
+        raise HTTPException(404, "Group not found")
+    if uid not in chat.get("group_admins", []):
+        raise HTTPException(403, "Only group admins can add members")
+    # Validate new members
+    new_ids = [u for u in body.user_ids if u not in chat["participants"]]
+    if not new_ids:
+        return await _enrich_chat(chat, uid)
+    valid = await db.users.find(
+        {"id": {"$in": new_ids}, "status": "approved"}
+    ).to_list(500)
+    valid_ids = [u["id"] for u in valid]
+    if not valid_ids:
+        raise HTTPException(400, "No valid users to add")
+    await db.chats.update_one(
+        {"id": chat_id},
+        {"$addToSet": {"participants": {"$each": valid_ids}}}
+    )
+    chat = await db.chats.find_one({"id": chat_id})
+    for pid in chat["participants"]:
+        for sid in list(ONLINE.get(pid, [])):
+            await sio.emit("chat_updated", {"chat_id": chat_id}, to=sid)
+    return await _enrich_chat(chat, uid)
+
+
+@api.delete("/groups/{chat_id}/members/{user_id}")
+async def remove_member(chat_id: str, user_id: str,
+                        uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "is_group": True})
+    if not chat:
+        raise HTTPException(404, "Group not found")
+    if uid != user_id and uid not in chat.get("group_admins", []):
+        raise HTTPException(403, "Only group admins can remove members")
+    await db.chats.update_one(
+        {"id": chat_id},
+        {"$pull": {"participants": user_id, "group_admins": user_id}}
+    )
+    chat = await db.chats.find_one({"id": chat_id})
+    notify_ids = list(chat["participants"]) + [user_id]
+    for pid in notify_ids:
+        for sid in list(ONLINE.get(pid, [])):
+            await sio.emit("chat_updated", {"chat_id": chat_id}, to=sid)
+    return {"ok": True}
+
+
+@api.post("/groups/{chat_id}/admins/{user_id}")
+async def promote_admin(chat_id: str, user_id: str,
+                        uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "is_group": True})
+    if not chat:
+        raise HTTPException(404, "Group not found")
+    if uid not in chat.get("group_admins", []):
+        raise HTTPException(403, "Only admins can promote")
+    if user_id not in chat["participants"]:
+        raise HTTPException(400, "User not in group")
+    await db.chats.update_one(
+        {"id": chat_id}, {"$addToSet": {"group_admins": user_id}}
+    )
+    return {"ok": True}
+
+
+@api.delete("/groups/{chat_id}/admins/{user_id}")
+async def demote_admin(chat_id: str, user_id: str,
+                       uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "is_group": True})
+    if not chat:
+        raise HTTPException(404, "Group not found")
+    if uid not in chat.get("group_admins", []):
+        raise HTTPException(403, "Only admins can demote")
+    admins = chat.get("group_admins", [])
+    if len(admins) <= 1 and user_id in admins:
+        raise HTTPException(400, "Cannot remove the last admin")
+    await db.chats.update_one(
+        {"id": chat_id}, {"$pull": {"group_admins": user_id}}
+    )
+    return {"ok": True}
+
+
+@api.post("/groups/{chat_id}/leave")
+async def leave_group(chat_id: str, uid: str = Depends(get_current_user_id)):
+    chat = await db.chats.find_one({"id": chat_id, "is_group": True})
+    if not chat:
+        raise HTTPException(404, "Group not found")
+    if uid not in chat["participants"]:
+        raise HTTPException(400, "Not a member")
+    await db.chats.update_one(
+        {"id": chat_id},
+        {"$pull": {"participants": uid, "group_admins": uid}}
+    )
+    chat = await db.chats.find_one({"id": chat_id})
+    if chat.get("participants") and not chat.get("group_admins"):
+        # Promote first remaining participant to admin
+        await db.chats.update_one(
+            {"id": chat_id},
+            {"$addToSet": {"group_admins": chat["participants"][0]}}
+        )
+    for pid in (chat.get("participants") or []) + [uid]:
+        for sid in list(ONLINE.get(pid, [])):
+            await sio.emit("chat_updated", {"chat_id": chat_id}, to=sid)
+    return {"ok": True}
+
+
+# ---------- SEARCH ----------
+@api.get("/search/messages")
+async def search_messages(q: str = Query(..., min_length=1),
+                          uid: str = Depends(get_current_user_id)):
+    # Restrict to chats user is in
+    user_chats = await db.chats.find({"participants": uid}).to_list(500)
+    chat_ids = [c["id"] for c in user_chats]
+    msgs = await db.messages.find({
+        "chat_id": {"$in": chat_ids},
+        "text": {"$regex": q, "$options": "i"},
+    }).sort("created_at", -1).limit(50).to_list(50)
+    for m in msgs:
+        m.pop("_id", None)
+    # Attach a chat hint
+    chat_lookup = {c["id"]: c for c in user_chats}
+    for m in msgs:
+        c = chat_lookup.get(m["chat_id"], {})
+        if c.get("is_group"):
+            m["chat_label"] = c.get("group_name") or "Group"
+        else:
+            peer_id = next((p for p in c.get("participants", []) if p != uid), None)
+            if peer_id:
+                peer = await db.users.find_one({"id": peer_id})
+                m["chat_label"] = peer.get("full_name") if peer else "Direct"
+            else:
+                m["chat_label"] = "Direct"
+    return msgs
 
 
 # ---------- FILE UPLOAD ----------
@@ -522,21 +765,64 @@ async def send_message(sid, data):
     if not uid:
         return {"error": "unauthorized"}
     peer_id = data.get("peer_id")
+    chat_id = data.get("chat_id")
     text = data.get("text")
     attachment = data.get("attachment")
-    if not peer_id or (not text and not attachment):
+    if not (peer_id or chat_id) or (not text and not attachment):
         return {"error": "invalid payload"}
-    peer = await db.users.find_one({"id": peer_id})
-    if not peer:
-        return {"error": "peer not found"}
-    chat = await _get_or_create_chat(uid, peer_id)
+
+    # Resolve chat: by chat_id (group or existing 1:1) or peer_id (1:1)
+    chat = None
+    if chat_id:
+        chat = await db.chats.find_one({"id": chat_id, "participants": uid})
+        if not chat:
+            return {"error": "chat not found"}
+        chat.pop("_id", None)
+    else:
+        peer = await db.users.find_one({"id": peer_id})
+        if not peer:
+            return {"error": "peer not found"}
+        chat = await _get_or_create_chat(uid, peer_id)
+
     now = now_iso()
-    recipient_online = peer_id in ONLINE
+    is_group = chat.get("is_group", False)
+
+    if is_group:
+        msg = {
+            "id": new_id(),
+            "chat_id": chat["id"],
+            "sender_id": uid,
+            "receiver_id": None,
+            "text": text,
+            "attachment": attachment,
+            "status": "sent",
+            "delivered_at": now,
+            "read_at": None,
+            "read_by": [uid],
+            "is_group": True,
+            "created_at": now,
+        }
+        await db.messages.insert_one(dict(msg))
+        msg.pop("_id", None)
+        preview = text if text else (attachment.get("name") if attachment else "Attachment")
+        await db.chats.update_one(
+            {"id": chat["id"]},
+            {"$set": {"last_message_at": now, "last_message_preview": preview[:120]}}
+        )
+        # Emit to all participants (including sender)
+        for pid in chat["participants"]:
+            for ss in list(ONLINE.get(pid, [])):
+                await sio.emit("new_message", msg, to=ss)
+        return {"ok": True, "message": msg}
+
+    # 1:1 chat
+    peer_id_resolved = next((p for p in chat["participants"] if p != uid), None)
+    recipient_online = peer_id_resolved in ONLINE
     msg = {
         "id": new_id(),
         "chat_id": chat["id"],
         "sender_id": uid,
-        "receiver_id": peer_id,
+        "receiver_id": peer_id_resolved,
         "text": text,
         "attachment": attachment,
         "status": "delivered" if recipient_online else "sent",
@@ -552,7 +838,7 @@ async def send_message(sid, data):
         {"$set": {"last_message_at": now, "last_message_preview": preview[:120]}}
     )
     # Emit to recipient
-    for rs in list(ONLINE.get(peer_id, [])):
+    for rs in list(ONLINE.get(peer_id_resolved, [])):
         await sio.emit("new_message", msg, to=rs)
     # Echo back to sender (all their sids)
     for ss in list(ONLINE.get(uid, [])):
@@ -566,12 +852,27 @@ async def typing(sid, data):
     if not uid:
         return
     peer_id = data.get("peer_id")
+    chat_id = data.get("chat_id")
     is_typing = bool(data.get("typing"))
-    if not peer_id:
+    # 1:1 typing
+    if peer_id:
+        for rs in list(ONLINE.get(peer_id, [])):
+            await sio.emit("typing",
+                           {"user_id": uid, "typing": is_typing,
+                            "chat_id": chat_id}, to=rs)
         return
-    for rs in list(ONLINE.get(peer_id, [])):
-        await sio.emit("typing",
-                       {"user_id": uid, "typing": is_typing}, to=rs)
+    # Group typing
+    if chat_id:
+        chat = await db.chats.find_one({"id": chat_id, "participants": uid})
+        if not chat:
+            return
+        for pid in chat["participants"]:
+            if pid == uid:
+                continue
+            for rs in list(ONLINE.get(pid, [])):
+                await sio.emit("typing",
+                               {"user_id": uid, "typing": is_typing,
+                                "chat_id": chat_id}, to=rs)
 
 
 @sio.event

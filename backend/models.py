@@ -84,10 +84,30 @@ class Message(BaseModel):
 class Chat(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=new_id)
-    participants: List[str]  # exactly 2 user ids (sorted)
+    participants: List[str]  # 2 for 1:1, >=2 for groups
+    is_group: bool = False
+    group_name: Optional[str] = None
+    group_icon: Optional[str] = None
+    group_admins: List[str] = Field(default_factory=list)
+    created_by: Optional[str] = None
     last_message_at: Optional[str] = None
     last_message_preview: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
+
+
+class GroupCreate(BaseModel):
+    name: str
+    icon: Optional[str] = None
+    participant_ids: List[str] = Field(default_factory=list)
+
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    icon: Optional[str] = None
+
+
+class GroupMembers(BaseModel):
+    user_ids: List[str]
 
 
 # ---------- ADMIN ----------
