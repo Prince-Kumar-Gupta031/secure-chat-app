@@ -543,7 +543,7 @@ async def upload_file(file: UploadFile = File(...),
     }
     await db.files.insert_one(record)
     return {"file_id": fid, "name": file.filename, "mime": mime, "size": size,
-            "url": f"/api/files/{fid}"}
+            "url": f"/api/files/public/{fid}"}
 
 
 @api.get("/files/{file_id}")
