@@ -276,79 +276,11 @@ async def get_messages(chat_id: str, before: Optional[str] = None,
         query["created_at"] = {"$lt": before}
     if q:
         query["text"] = {"$regex": q, "$options": "i"}
-    # msgs = await db.messages.find(query).sort("created_at", -1).limit(min(limit, 200)).to_list(200)
-    # for m in msgs:
-    #     m.pop("_id", None)
-    # return list(reversed(msgs))
     msgs = await db.messages.find(query).sort("created_at", -1).limit(min(limit, 200)).to_list(200)
-
-    visible_msgs = []
-
     for m in msgs:
         m.pop("_id", None)
+    return list(reversed(msgs))
 
-    # Hide messages deleted for current user
-        if uid in m.get("deleted_for", []):
-         continue
-
-        visible_msgs.append(m)
-
-        return list(reversed(visible_msgs))
-
-#====================
-@api.delete("/messages/{message_id}/me")
-async def delete_message_for_me(
-    message_id: str,
-    uid: str = Depends(get_current_user_id)
-):
-    msg = await db.messages.find_one({"id": message_id})
-
-    if not msg:
-        raise HTTPException(404, "Message not found")
-
-    deleted_for = msg.get("deleted_for", [])
-
-    if uid not in deleted_for:
-        deleted_for.append(uid)
-
-    await db.messages.update_one(
-        {"id": message_id},
-        {"$set": {"deleted_for": deleted_for}}
-    )
-
-    return {"success": True}
-
-#===========
-@api.delete("/messages/{message_id}/everyone")
-async def delete_message_for_everyone(
-    message_id: str,
-    uid: str = Depends(get_current_user_id)
-):
-    msg = await db.messages.find_one({"id": message_id})
-
-    if not msg:
-        raise HTTPException(404, "Message not found")
-
-    if msg["sender_id"] != uid:
-        raise HTTPException(
-            status_code=403,
-            detail="Only sender can delete for everyone"
-        )
-
-    await db.messages.update_one(
-        {"id": message_id},
-        {
-            "$set": {
-                "text": None,
-                "attachment": None,
-                "deleted_for_everyone": True,
-                "deleted_at": now_iso()
-            }
-        }
-    )
-
-    return {"success": True}
-#===========
 
 @api.post("/chats/{chat_id}/read")
 async def mark_read(chat_id: str, uid: str = Depends(get_current_user_id)):
@@ -981,27 +913,26 @@ async def startup():
     # Seed admin
     admin_mobile = os.environ.get("SEED_ADMIN_MOBILE")
     admin_password = os.environ.get("SEED_ADMIN_PASSWORD")
-
     if admin_mobile and admin_password:
-
         admin_empid = os.environ.get(
-        "SEED_ADMIN_EMPID",
-        "DRDO-ADMIN-001"
-    )
+    "SEED_ADMIN_EMPID",
+    "DRDO-ADMIN-001"
+)
 
-    existing = await db.users.find_one({
-        "$or": [
+        existing = await db.users.find_one({
+            "$or": [
             {"mobile": admin_mobile},
             {"employee_id": admin_empid}
-        ]
-    })
-
-    if not existing:
+            ]
+                })
+        
+        if not existing:
+                
             doc = {
                 "id": new_id(),
                 "full_name": os.environ.get("SEED_ADMIN_NAME", "Super Admin"),
                 "mobile": admin_mobile,
-                "employee_id": os.environ.get("SEED_ADMIN_EMPID", "DRDO-ADMIN-001"),
+                "employee_id": admin_empid,
                 "department": "Administration",
                 "password_hash": hash_password(admin_password),
                 "profile_picture": None,
