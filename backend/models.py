@@ -80,6 +80,12 @@ class Message(BaseModel):
     read_at: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
+    # here is msg delete buttion
+    deleted_for: List[str] = Field(default_factory=list)
+    deleted_for_everyone: bool = False
+    deleted_at: Optional[str] = None
+    #------------------------------
+
 
 class Chat(BaseModel):
     model_config = ConfigDict(extra="ignore")
