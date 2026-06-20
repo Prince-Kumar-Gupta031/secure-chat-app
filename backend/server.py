@@ -982,16 +982,8 @@ async def startup():
     admin_mobile = os.environ.get("SEED_ADMIN_MOBILE")
     admin_password = os.environ.get("SEED_ADMIN_PASSWORD")
     if admin_mobile and admin_password:
-        admin_empid = os.environ.get("SEED_ADMIN_EMPID", "DRDO-ADMIN-001")
-
-    existing = await db.users.find_one({
-    "$or": [
-        {"mobile": admin_mobile},
-        {"employee_id": admin_empid}
-    ]
-    })
-
-    if not existing:    
+        existing = await db.users.find_one({"mobile": admin_mobile})
+        if not existing:
             doc = {
                 "id": new_id(),
                 "full_name": os.environ.get("SEED_ADMIN_NAME", "Super Admin"),
