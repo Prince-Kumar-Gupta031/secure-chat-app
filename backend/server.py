@@ -619,7 +619,7 @@ async def startup():
                 "id": new_id(),
                 "full_name": os.environ.get("SEED_ADMIN_NAME", "Super Admin"),
                 "mobile": admin_mobile,
-                "employee_id": os.environ.get("SEED_ADMIN_EMPID", "DRDO-ADMIN-001"),
+                "employee_id": os.environ.get("SEED_ADMIN_EMPID", "ADMIN-001"),
                 "department": "Administration",
                 "password_hash": hash_password(admin_password),
                 "profile_picture": None,
